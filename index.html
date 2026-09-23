@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IT Service Desk</title>
+<!--
+  IT Service Desk — a Seedful tool (it-service-desk)
+  ====================================================
+  A static web app that reads company data through Seedful's governed gateway.
+  No backend, no database, no secrets — read-only, end to end. See AGENTS.md.
+
+  Deployed with these approved queries: it_tickets.list_tickets, it_tickets.mean_time_to_resolve_by_priority, it_tickets.tickets_by_status
+
+  This scaffold lists customers via the approved query
+  `customer_usage.list_customers`, with an optional plan filter.
+  Replace it with whatever your tool needs — the runQuery() helper and the
+  loading / empty / error handling below are the parts worth keeping. If your
+  tool doesn't use that query, swap the fetch below for one of the queries
+  listed above (see AGENTS.md's "Data Access" section for the shape).
+
+  LOCAL DEV / CORS: in production Seedful serves this tool same-origin as its
+  gateway, so fetch() just works. In local dev the gateway sends no CORS
+  headers, so opening this file straight from disk (or on a different port)
+  will fail the live fetch and land on the error state below — that's expected.
+  For local work, verify queries with curl (see AGENTS.md) and/or iterate on
+  layout against a hardcoded snapshot, then rely on same-origin serving in prod.
+-->
+<style>
+  :root {
+    color-scheme: light;
+    --page:           #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --accent:         #2a78d6;
+    --critical:       #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:           #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --accent:         #3987e5;
+      --critical:       #e66767;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 48px; }
+  header h1 { font-size: 20px; font-weight: 600; margin: 0 0 2px; }
+  header p  { margin: 0; color: var(--text-secondary); }
+
+  .controls { display: flex; gap: 12px; align-items: end; margin: 24px 0 16px; flex-wrap: wrap; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12.5px; color: var(--text-secondary); }
+  select, button {
+    font: inherit; padding: 7px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface-1);
+    color: var(--text-primary);
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px;
+  }
+  .scroll-x { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; color: var(--text-secondary); font-weight: 500;
+    border-bottom: 1px solid var(--baseline); padding: 6px 10px;
+  }
+  td { padding: 7px 10px; border-bottom: 1px solid var(--grid); }
+  tr:last-child td { border-bottom: none; }
+  th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .plan-pill {
+    display: inline-block; font-size: 11.5px; padding: 1px 8px;
+    border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary);
+  }
+  .dim { color: var(--text-muted); }
+
+  .state { padding: 28px 8px; text-align: center; color: var(--text-secondary); }
+  .state.error { color: var(--critical); }
+  footer { color: var(--text-muted); font-size: 12px; margin-top: 20px; }
+  code { font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>IT Service Desk</h1>
+    <p>Live from Seedful — approved query <code>customer_usage.list_customers</code>.
+      Replace this example with whatever <code>it-service-desk</code> actually needs.</p>
+  </header>
+
+  <div class="controls">
+    <div class="field">
+      <label for="plan">Plan</label>
+      <select id="plan">
+        <option value="">All plans</option>
+        <option value="free">free</option>
+        <option value="starter">starter</option>
+        <option value="growth">growth</option>
+        <option value="enterprise">enterprise</option>
+      </select>
+    </div>
+    <button id="reload" type="button">Refresh</button>
+  </div>
+
+  <section class="card">
+    <div class="scroll-x">
+      <table id="table" hidden>
+        <thead>
+          <tr>
+            <th>Company</th>
+            <th>Plan</th>
+            <th class="num">MRR / mo</th>
+            <th>Customer since</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="state" id="state">Loading…</div>
+  </section>
+
+  <footer>
+    Served by the Seedful gateway from an approved spec. Read-only.<br>
+    <span class="dim">Tool <code>it-service-desk</code> — deployed with: it_tickets.list_tickets, it_tickets.mean_time_to_resolve_by_priority, it_tickets.tickets_by_status</span>
+  </footer>
+</div>
+
+<script>
+  // ---- Gateway wiring ---------------------------------------------------
+  // Seedful serves a deployed tool from the SAME origin as its data proxy
+  // (dev: /app/<slug>, once deployed: the tool's own origin), so a RELATIVE
+  // path is all this file needs — no gateway URL and no token belong here.
+  // The proxy attaches this tool's scoped token server-side; see AGENTS.md's
+  // "Identity, Tokens, and Who Sees What".
+  //
+  // That also means the live fetch below only resolves while Seedful is
+  // serving the page. Opened straight from disk, or run on a different local
+  // port, it has nothing to reach and lands on the error state below — that
+  // is expected, not a bug. Your gateway URL is in your Seedful console (it
+  // is deliberately not written into this repo); see AGENTS.md's "Local Development" section for how to
+  // verify queries against it directly with curl (dev identity headers,
+  // shown there) while iterating outside of Seedful's own serving.
+  const BASE = window.location.pathname.replace(/\/+$/, "");
+
+  // Run a named query from an approved spec with typed params. Returns
+  // { spec, query, row_count, rows, meta }. Throws Error("code: message")
+  // on any gateway refusal.
+  async function runQuery(spec, query, params = {}) {
+    const res = await fetch(`${BASE}/api/query/${spec}/${query}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ params }),
+    });
+    if (!res.ok) {
+      let code = "error", message = res.statusText;
+      try { ({ code, message } = (await res.json()).error); } catch {}
+      throw new Error(`${code}: ${message}`);
+    }
+    return res.json();
+  }
+
+  // ---- Rendering --------------------------------------------------------
+  const table = document.getElementById("table");
+  const tbody = table.querySelector("tbody");
+  const stateEl = document.getElementById("state");
+
+  const fmtMrr = (cents) => cents ? "$" + Math.round(cents / 100).toLocaleString("en-US") : "—";
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "short" }) : "—";
+
+  function showState(text, isError = false) {
+    table.hidden = true;
+    stateEl.hidden = false;
+    stateEl.className = "state" + (isError ? " error" : "");
+    stateEl.textContent = text;
+  }
+
+  function renderRows(rows) {
+    tbody.replaceChildren();
+    if (rows.length === 0) { showState("No customers match this filter."); return; }
+    for (const r of rows) {
+      const tr = document.createElement("tr");
+      const company = document.createElement("td");
+      company.textContent = r.company ?? "—";
+      const plan = document.createElement("td");
+      const pill = document.createElement("span");
+      pill.className = "plan-pill";
+      pill.textContent = r.plan ?? "—";
+      plan.appendChild(pill);
+      const mrr = document.createElement("td");
+      mrr.className = "num" + (r.mrr_cents ? "" : " dim");
+      mrr.textContent = fmtMrr(r.mrr_cents);
+      const since = document.createElement("td");
+      since.className = r.created_at ? "" : "dim";
+      since.textContent = fmtDate(r.created_at);
+      tr.append(company, plan, mrr, since);
+      tbody.appendChild(tr);
+    }
+    stateEl.hidden = true;
+    table.hidden = false;
+  }
+
+  // ---- Load -------------------------------------------------------------
+  async function load() {
+    showState("Loading…");
+    const plan = document.getElementById("plan").value;
+    const params = { limit: 50 };
+    if (plan) params.plan = plan;   // optional param — omit when "All plans"
+    try {
+      const result = await runQuery("customer_usage", "list_customers", params);
+      renderRows(result.rows);
+    } catch (e) {
+      console.error(e);
+      showState("Couldn't load customers right now. Is the gateway running?", true);
+    }
+  }
+
+  document.getElementById("reload").addEventListener("click", load);
+  document.getElementById("plan").addEventListener("change", load);
+  load();
+</script>
+</body>
+</html>
