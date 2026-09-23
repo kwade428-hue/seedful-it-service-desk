@@ -5,168 +5,146 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>IT Service Desk</title>
 <!--
-  IT Service Desk — a Seedful tool (it-service-desk)
-  ====================================================
-  A static web app that reads company data through Seedful's governed gateway.
-  No backend, no database, no secrets — read-only, end to end. See AGENTS.md.
+  IT Service Desk — a Seedful tool built on the approved `it_tickets` spec.
+  Static, read-only, no secrets: every number comes through the tool's
+  same-origin proxy (`<page>/api/query/<spec>/<query>`), which attaches the
+  tool's scoped token server-side.
 
-  Deployed with these approved queries: it_tickets.list_tickets, it_tickets.mean_time_to_resolve_by_priority, it_tickets.tickets_by_status
-
-  This scaffold lists customers via the approved query
-  `customer_usage.list_customers`, with an optional plan filter.
-  Replace it with whatever your tool needs — the runQuery() helper and the
-  loading / empty / error handling below are the parts worth keeping. If your
-  tool doesn't use that query, swap the fetch below for one of the queries
-  listed above (see AGENTS.md's "Data Access" section for the shape).
-
-  LOCAL DEV / CORS: in production Seedful serves this tool same-origin as its
-  gateway, so fetch() just works. In local dev the gateway sends no CORS
-  headers, so opening this file straight from disk (or on a different port)
-  will fail the live fetch and land on the error state below — that's expected.
-  For local work, verify queries with curl (see AGENTS.md) and/or iterate on
-  layout against a hardcoded snapshot, then rely on same-origin serving in prod.
+  Queries used (deploy with exactly these in the allowlist):
+    it_tickets.tickets_by_status
+    it_tickets.mean_time_to_resolve_by_priority
+    it_tickets.list_tickets
 -->
 <style>
   :root {
     color-scheme: light;
-    --page:           #f9f9f7;
-    --surface-1:      #fcfcfb;
-    --text-primary:   #0b0b0b;
-    --text-secondary: #52514e;
-    --text-muted:     #898781;
-    --grid:           #e1e0d9;
-    --baseline:       #c3c2b7;
-    --border:         rgba(11,11,11,0.10);
-    --accent:         #2a78d6;
-    --critical:       #d03b3b;
+    --page: #f9f9f7; --surface: #fcfcfb; --text: #0b0b0b; --text-2: #52514e;
+    --muted: #898781; --grid: #e1e0d9; --baseline: #c3c2b7;
+    --border: rgba(11,11,11,0.10); --accent: #2a78d6; --critical: #d03b3b;
+    --warn: #b7791f; --bar: #2a78d6;
   }
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) {
       color-scheme: dark;
-      --page:           #0d0d0d;
-      --surface-1:      #1a1a19;
-      --text-primary:   #ffffff;
-      --text-secondary: #c3c2b7;
-      --text-muted:     #898781;
-      --grid:           #2c2c2a;
-      --baseline:       #383835;
-      --border:         rgba(255,255,255,0.10);
-      --accent:         #3987e5;
-      --critical:       #e66767;
+      --page: #0d0d0d; --surface: #1a1a19; --text: #ffffff; --text-2: #c3c2b7;
+      --muted: #898781; --grid: #2c2c2a; --baseline: #383835;
+      --border: rgba(255,255,255,0.10); --accent: #3987e5; --critical: #e66767;
+      --warn: #e0a84a; --bar: #3987e5;
     }
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--page);
-    color: var(--text-primary);
-    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 32px 20px 48px; }
+  body { margin: 0; background: var(--page); color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px 16px 48px; }
   header h1 { font-size: 20px; font-weight: 600; margin: 0 0 2px; }
-  header p  { margin: 0; color: var(--text-secondary); }
-
-  .controls { display: flex; gap: 12px; align-items: end; margin: 24px 0 16px; flex-wrap: wrap; }
-  .field { display: flex; flex-direction: column; gap: 4px; }
-  .field label { font-size: 12.5px; color: var(--text-secondary); }
-  select, button {
-    font: inherit; padding: 7px 10px; border-radius: 8px;
-    border: 1px solid var(--border); background: var(--surface-1);
-    color: var(--text-primary);
-  }
-  button { cursor: pointer; }
-  button:hover { border-color: var(--accent); }
-
-  .card {
-    background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 10px; padding: 20px;
-  }
+  header p { margin: 0; color: var(--text-2); }
+  h2 { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
+  .card { background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px; min-width: 0; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px; margin: 24px 0 12px; }
+  .kpi .label { font-size: 12.5px; color: var(--text-2); }
+  .kpi .value { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .kpi.alert .value { color: var(--critical); }
+  .grid2 { display: grid; grid-template-columns: 3fr 2fr; gap: 12px; margin-bottom: 12px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
   .scroll-x { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th {
-    text-align: left; color: var(--text-secondary); font-weight: 500;
-    border-bottom: 1px solid var(--baseline); padding: 6px 10px;
-  }
-  td { padding: 7px 10px; border-bottom: 1px solid var(--grid); }
+  th { text-align: left; color: var(--text-2); font-weight: 500;
+    border-bottom: 1px solid var(--baseline); padding: 6px 8px; white-space: nowrap; }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
   tr:last-child td { border-bottom: none; }
   th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .plan-pill {
-    display: inline-block; font-size: 11.5px; padding: 1px 8px;
-    border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary);
-  }
-  .dim { color: var(--text-muted); }
-
-  .state { padding: 28px 8px; text-align: center; color: var(--text-secondary); }
+  td.zero { color: var(--muted); }
+  .bars .row { display: grid; grid-template-columns: 70px 1fr 64px; gap: 8px;
+    align-items: center; margin: 6px 0; font-size: 13px; }
+  .bars .track { height: 10px; background: var(--grid); border-radius: 5px; overflow: hidden; }
+  .bars .fill { height: 100%; background: var(--bar); border-radius: 5px; }
+  .bars .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2); }
+  .controls { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-bottom: 12px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12.5px; color: var(--text-2); }
+  select, button { font: inherit; padding: 6px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .check { display: flex; gap: 6px; align-items: center; font-size: 13px; padding-bottom: 6px; }
+  .pill { display: inline-block; font-size: 11.5px; padding: 0 8px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--text-2); white-space: nowrap; }
+  .pill.breach { color: var(--critical); border-color: currentColor; }
+  .pri-Highest { color: var(--critical); font-weight: 600; }
+  .pri-High { color: var(--warn); }
+  .id { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px; white-space: nowrap; }
+  .dim { color: var(--muted); }
+  .pager { display: flex; gap: 8px; align-items: center; justify-content: flex-end;
+    margin-top: 10px; font-size: 12.5px; color: var(--text-2); }
+  .state { padding: 24px 8px; text-align: center; color: var(--text-2); }
   .state.error { color: var(--critical); }
-  footer { color: var(--text-muted); font-size: 12px; margin-top: 20px; }
-  code { font-size: 12px; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>IT Service Desk</h1>
-    <p>Live from Seedful — approved query <code>customer_usage.list_customers</code>.
-      Replace this example with whatever <code>it-service-desk</code> actually needs.</p>
+    <p>Live queue health from the approved <code>it_tickets</code> spec. Read-only.</p>
   </header>
 
-  <div class="controls">
-    <div class="field">
-      <label for="plan">Plan</label>
-      <select id="plan">
-        <option value="">All plans</option>
-        <option value="free">free</option>
-        <option value="starter">starter</option>
-        <option value="growth">growth</option>
-        <option value="enterprise">enterprise</option>
-      </select>
-    </div>
-    <button id="reload" type="button">Refresh</button>
+  <section class="kpis" aria-label="Queue summary">
+    <div class="card kpi"><div class="label">Open queue</div><div class="value" id="k-open">—</div></div>
+    <div class="card kpi alert"><div class="label">Open · Highest priority</div><div class="value" id="k-highest">—</div></div>
+    <div class="card kpi alert"><div class="label">Escalated</div><div class="value" id="k-escalated">—</div></div>
+    <div class="card kpi"><div class="label">Resolved or closed</div><div class="value" id="k-done">—</div></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>Open queue by status and priority</h2>
+      <div class="scroll-x"><table id="matrix" hidden><thead></thead><tbody></tbody></table></div>
+      <div class="state" id="matrix-state">Loading…</div>
+    </section>
+    <section class="card">
+      <h2>Mean hours to resolve, by priority</h2>
+      <div class="bars" id="mttr" hidden></div>
+      <div class="state" id="mttr-state">Loading…</div>
+    </section>
   </div>
 
   <section class="card">
+    <h2>Tickets</h2>
+    <div class="controls">
+      <div class="field"><label for="f-status">Status</label>
+        <select id="f-status"><option value="">Any status</option></select></div>
+      <div class="field"><label for="f-priority">Priority</label>
+        <select id="f-priority"><option value="">Any priority</option></select></div>
+      <div class="field"><label for="f-team">Team</label>
+        <select id="f-team"><option value="">Any team</option></select></div>
+      <label class="check"><input type="checkbox" id="f-breach"> SLA breached only</label>
+      <button id="reload" type="button">Refresh</button>
+    </div>
     <div class="scroll-x">
-      <table id="table" hidden>
-        <thead>
-          <tr>
-            <th>Company</th>
-            <th>Plan</th>
-            <th class="num">MRR / mo</th>
-            <th>Customer since</th>
-          </tr>
-        </thead>
+      <table id="tickets" hidden>
+        <thead><tr><th>Ticket</th><th>Summary</th><th>Status</th><th>Priority</th>
+          <th>Team</th><th>Assignee</th><th>Created</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
-    <div class="state" id="state">Loading…</div>
+    <div class="state" id="tickets-state">Loading…</div>
+    <div class="pager">
+      <span id="page-info"></span>
+      <button id="prev" type="button" disabled>Previous</button>
+      <button id="next" type="button" disabled>Next</button>
+    </div>
   </section>
 
-  <footer>
-    Served by the Seedful gateway from an approved spec. Read-only.<br>
-    <span class="dim">Tool <code>it-service-desk</code> — deployed with: it_tickets.list_tickets, it_tickets.mean_time_to_resolve_by_priority, it_tickets.tickets_by_status</span>
-  </footer>
+  <footer>Served by Seedful from an approved spec through this tool's scoped token.</footer>
 </div>
 
 <script>
-  // ---- Gateway wiring ---------------------------------------------------
-  // Seedful serves a deployed tool from the SAME origin as its data proxy
-  // (dev: /app/<slug>, once deployed: the tool's own origin), so a RELATIVE
-  // path is all this file needs — no gateway URL and no token belong here.
-  // The proxy attaches this tool's scoped token server-side; see AGENTS.md's
-  // "Identity, Tokens, and Who Sees What".
-  //
-  // That also means the live fetch below only resolves while Seedful is
-  // serving the page. Opened straight from disk, or run on a different local
-  // port, it has nothing to reach and lands on the error state below — that
-  // is expected, not a bug. Your gateway URL is in your Seedful console (it
-  // is deliberately not written into this repo); see AGENTS.md's "Local Development" section for how to
-  // verify queries against it directly with curl (dev identity headers,
-  // shown there) while iterating outside of Seedful's own serving.
+  // Same-origin proxy: no gateway URL and no token live in this file.
   const BASE = window.location.pathname.replace(/\/+$/, "");
 
-  // Run a named query from an approved spec with typed params. Returns
-  // { spec, query, row_count, rows, meta }. Throws Error("code: message")
-  // on any gateway refusal.
   async function runQuery(spec, query, params = {}) {
     const res = await fetch(`${BASE}/api/query/${spec}/${query}`, {
       method: "POST",
@@ -181,64 +159,153 @@
     return res.json();
   }
 
-  // ---- Rendering --------------------------------------------------------
-  const table = document.getElementById("table");
-  const tbody = table.querySelector("tbody");
-  const stateEl = document.getElementById("state");
+  const PRIORITIES = ["Highest", "High", "Medium", "Low", "Lowest"];
+  const OPEN = ["Open", "In Progress", "Waiting for customer", "Waiting for support", "Escalated"];
+  const DONE = ["Resolved", "Closed"];
+  const STATUSES = [...OPEN, ...DONE, "Canceled"];
+  const TEAMS = ["Service Desk", "Endpoint", "Network", "Identity & Access", "Applications", "Security"];
+  const PAGE = 25;
 
-  const fmtMrr = (cents) => cents ? "$" + Math.round(cents / 100).toLocaleString("en-US") : "—";
-  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("en-US", { year: "numeric", month: "short" }) : "—";
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, text, cls) => {
+    const e = document.createElement(tag);
+    if (text != null) e.textContent = text;
+    if (cls) e.className = cls;
+    return e;
+  };
+  // Aggregates can arrive as strings (Postgres bigint/numeric); coerce once here.
+  const num = (v) => (v == null ? 0 : Number(v));
+  const fmt = (n) => n.toLocaleString("en-US");
 
-  function showState(text, isError = false) {
-    table.hidden = true;
-    stateEl.hidden = false;
-    stateEl.className = "state" + (isError ? " error" : "");
-    stateEl.textContent = text;
+  function state(id, text, isError = false) {
+    const s = $(id);
+    s.hidden = false;
+    s.className = "state" + (isError ? " error" : "");
+    s.textContent = text;
   }
 
-  function renderRows(rows) {
-    tbody.replaceChildren();
-    if (rows.length === 0) { showState("No customers match this filter."); return; }
-    for (const r of rows) {
-      const tr = document.createElement("tr");
-      const company = document.createElement("td");
-      company.textContent = r.company ?? "—";
-      const plan = document.createElement("td");
-      const pill = document.createElement("span");
-      pill.className = "plan-pill";
-      pill.textContent = r.plan ?? "—";
-      plan.appendChild(pill);
-      const mrr = document.createElement("td");
-      mrr.className = "num" + (r.mrr_cents ? "" : " dim");
-      mrr.textContent = fmtMrr(r.mrr_cents);
-      const since = document.createElement("td");
-      since.className = r.created_at ? "" : "dim";
-      since.textContent = fmtDate(r.created_at);
-      tr.append(company, plan, mrr, since);
-      tbody.appendChild(tr);
-    }
-    stateEl.hidden = true;
-    table.hidden = false;
+  for (const [id, values] of [["f-status", STATUSES], ["f-priority", PRIORITIES], ["f-team", TEAMS]]) {
+    for (const v of values) $(id).appendChild(el("option", v)).value = v;
   }
 
-  // ---- Load -------------------------------------------------------------
-  async function load() {
-    showState("Loading…");
-    const plan = document.getElementById("plan").value;
-    const params = { limit: 50 };
-    if (plan) params.plan = plan;   // optional param — omit when "All plans"
+  // ---- Queue shape: KPIs + status x priority grid ------------------------
+  async function loadQueue() {
     try {
-      const result = await runQuery("customer_usage", "list_customers", params);
-      renderRows(result.rows);
+      const { rows } = await runQuery("it_tickets", "tickets_by_status", { limit: 200 });
+      const count = {};
+      for (const r of rows) count[`${r.status}|${r.priority}`] = num(r.ticket_count);
+      const sum = (statuses, pris = PRIORITIES) =>
+        statuses.reduce((a, s) => a + pris.reduce((b, p) => b + (count[`${s}|${p}`] || 0), 0), 0);
+
+      $("k-open").textContent = fmt(sum(OPEN));
+      $("k-highest").textContent = fmt(sum(OPEN, ["Highest"]));
+      $("k-escalated").textContent = fmt(sum(["Escalated"]));
+      $("k-done").textContent = fmt(sum(DONE));
+
+      const table = $("matrix");
+      const head = el("tr");
+      head.append(el("th", "Status"), ...PRIORITIES.map((p) => el("th", p, "num")), el("th", "Total", "num"));
+      table.tHead.replaceChildren(head);
+      const body = table.tBodies[0];
+      body.replaceChildren();
+      for (const s of OPEN) {
+        const tr = el("tr");
+        tr.appendChild(el("td", s));
+        for (const p of PRIORITIES) {
+          const n = count[`${s}|${p}`] || 0;
+          tr.appendChild(el("td", fmt(n), n ? "num" : "num zero"));
+        }
+        tr.appendChild(el("td", fmt(sum([s])), "num"));
+        body.appendChild(tr);
+      }
+      $("matrix-state").hidden = true;
+      table.hidden = false;
     } catch (e) {
       console.error(e);
-      showState("Couldn't load customers right now. Is the gateway running?", true);
+      state("matrix-state", "Couldn't load the queue.", true);
     }
   }
 
-  document.getElementById("reload").addEventListener("click", load);
-  document.getElementById("plan").addEventListener("change", load);
-  load();
+  // ---- Time to resolve ---------------------------------------------------
+  async function loadMttr() {
+    try {
+      const { rows } = await runQuery("it_tickets", "mean_time_to_resolve_by_priority", { limit: 10 });
+      const byPri = Object.fromEntries(rows.map((r) => [r.priority, num(r.mean_hours_to_resolve)]));
+      const max = Math.max(1, ...Object.values(byPri));
+      const bars = $("mttr");
+      bars.replaceChildren();
+      for (const p of PRIORITIES) {
+        if (!(p in byPri)) continue;
+        const row = el("div", null, "row");
+        const track = el("div", null, "track");
+        const fill = el("div", null, "fill");
+        fill.style.width = `${(byPri[p] / max) * 100}%`;
+        track.appendChild(fill);
+        row.append(el("span", p), track, el("span", `${byPri[p].toFixed(1)} h`, "v"));
+        bars.appendChild(row);
+      }
+      $("mttr-state").hidden = true;
+      bars.hidden = false;
+    } catch (e) {
+      console.error(e);
+      state("mttr-state", "Couldn't load resolution times.", true);
+    }
+  }
+
+  // ---- Ticket list -------------------------------------------------------
+  let offset = 0;
+
+  async function loadTickets() {
+    const table = $("tickets");
+    table.hidden = true;
+    state("tickets-state", "Loading…");
+    const params = { limit: PAGE, offset };
+    if ($("f-status").value) params.status = $("f-status").value;
+    if ($("f-priority").value) params.priority = $("f-priority").value;
+    if ($("f-team").value) params.team = $("f-team").value;
+    if ($("f-breach").checked) params.sla_breached = true;
+    try {
+      const { rows } = await runQuery("it_tickets", "list_tickets", params);
+      const body = table.tBodies[0];
+      body.replaceChildren();
+      for (const r of rows) {
+        const tr = el("tr");
+        const statusTd = el("td");
+        statusTd.appendChild(el("span", r.status, "pill"));
+        if (r.sla_breached) statusTd.append(" ", el("span", "SLA", "pill breach"));
+        tr.append(
+          el("td", r.id, "id"),
+          el("td", r.summary),
+          statusTd,
+          el("td", r.priority, `pri-${r.priority}`),
+          el("td", r.team),
+          el("td", r.assignee ?? "Unassigned", r.assignee ? "" : "dim"),
+          el("td", r.created_at ? new Date(r.created_at).toLocaleDateString("en-US",
+            { year: "numeric", month: "short", day: "numeric" }) : "—"),
+        );
+        body.appendChild(tr);
+      }
+      $("page-info").textContent = rows.length ? `${fmt(offset + 1)}–${fmt(offset + rows.length)}` : "";
+      $("prev").disabled = offset === 0;
+      $("next").disabled = rows.length < PAGE;
+      if (rows.length === 0) { state("tickets-state", "No tickets match these filters."); return; }
+      $("tickets-state").hidden = true;
+      table.hidden = false;
+    } catch (e) {
+      console.error(e);
+      state("tickets-state", "Couldn't load tickets.", true);
+    }
+  }
+
+  const refilter = () => { offset = 0; loadTickets(); };
+  for (const id of ["f-status", "f-priority", "f-team", "f-breach"]) $(id).addEventListener("change", refilter);
+  $("reload").addEventListener("click", () => { loadQueue(); loadMttr(); loadTickets(); });
+  $("prev").addEventListener("click", () => { offset = Math.max(0, offset - PAGE); loadTickets(); });
+  $("next").addEventListener("click", () => { offset += PAGE; loadTickets(); });
+
+  loadQueue();
+  loadMttr();
+  loadTickets();
 </script>
 </body>
 </html>
